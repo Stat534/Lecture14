@@ -1,0 +1,51 @@
+---
+title: "Lecture 14: Spatial GLMs"
+output:
+  revealjs::revealjs_presentation:
+    theme: white
+    center: true
+    transition: none
+    incremental: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+
+# Class Intro
+
+## Intro Questions 
+- Describe geometric anisotropy. How can 
+
+- For Today:
+    - Spatial Generalized Linear Models
+    
+# Spatial GLMS
+
+## Data Viz Motivation
+
+## Generalized Linear Model Notation
+
+## Logistic Regression Overview
+
+## Logistic Regression in JAGS
+
+## Spatial Logistic Regression
+
+## Spatial Logistic Regression in JAGS
+
+## Spatial Logistic Regression with `spGLM()` 
+
+## Spatial Probit Regression from scratch
+
+## Poisson Regression Overview
+
+## Poisson Regression in JAGS
+
+## Spatial Poisson Regression in JAGS
+
+## Spatial Poisson Regression with `spGLM()`
