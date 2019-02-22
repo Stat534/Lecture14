@@ -14,33 +14,391 @@ knitr::opts_chunk$set(message = FALSE)
 library(dplyr)
 library(ggplot2)
 library(knitr)
+library(leaflet)
+library(gtools)
+library(rjags)
+library(spBayes)
+library(MBA)
+library(mgcv)
 ```
 
 # Class Intro
 
 ## Intro Questions 
-- Describe geometric anisotropy. How can 
+- Describe geometric anisotropy. Discuss this in the context of a data set.
 
 - For Today:
     - Spatial Generalized Linear Models
+
+# Geometric Anisotropy
+
+## Geometric Anisotropy Model
+- Let $\boldsymbol{Y}(\boldsymbol{s}) = \mu(\boldsymbol{s}) + w(\boldsymbol{s}) + \epsilon(\boldsymbol{s})$,
+thus $\boldsymbol{Y}(\boldsymbol{s}) \sim N(\mu(\boldsymbol{s}), \Sigma(\tau^2, \sigma^2, \phi, B))$, where $B = L^T L$.
+- The covariance matrix is defined as $\Sigma(\tau^2, \sigma^2, \phi, B)) = \tau^2 I + \sigma^2 H((\boldsymbol{h}^T B \boldsymbol{h}^T)^{\frac{1}{2}}),$ where $H((\boldsymbol{h}^T B \boldsymbol{h}^T)^{\frac{1}{2}})$ has entries of $\rho((\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}}))$ with $\rho()$ being a valid correation function, typically including $\phi$ and $\boldsymbol{h_{ij}} = \boldsymbol{s_i} - \boldsymbol{s_j}$.
+
+## Geometric Anisotropy Visual
+- Consider four points positioned on a unit circle.
+```{r, fig.width=4, fig.height = 4, fig.align = 'center'}
+x = c(-1, 0, 0, 1)
+y = c(0, -1, 1, 0)
+gg_circle <- function(r, xc, yc, color="black", fill=NA, ...) {
+    x <- xc + r*cos(seq(0, pi, length.out=100))
+    ymax <- yc + r*sin(seq(0, pi, length.out=100))
+    ymin <- yc + r*sin(seq(0, -pi, length.out=100))
+    annotate("ribbon", x=x, ymin=ymin, ymax=ymax, color=color, fill=fill, ...)
+}
+
+data.frame(x=x, y=y) %>% ggplot(aes(x=x,y=y))  + gg_circle(r=1, xc=0, yc=0, color = 'gray') + geom_point(shape = c('1','2','3','4'), size=5)
+
+```
+
+- How far apart are each set of points?
+
+## Geometric Anisotropy Exercise 1
+Now consider a set of correlation functions. For each, calculate the correlation matrix and discuss the impact of $B$ on the correlation. Furthermore, how does B change the geometry of the correlation?
+
+1. $\rho() = \exp(-\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}})),$ where $B = \begin{pmatrix}
+1 & 0 \\
+0 & 1 \\
+\end{pmatrix}$
+
+2. $\rho() = \exp(-\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}})),$ where $B = \begin{pmatrix}
+2 & 0 \\
+0 & 1 \\
+\end{pmatrix}$
+
+3. $\rho() = \exp(-\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}})),$ where $B = \begin{pmatrix}
+3 & 1 \\
+1 & 1 \\
+\end{pmatrix}$
+
+## Geometric Anisotropy: Solution 1
+```{r}
+h.x <- matrix(0, 4, 4)
+h.y <- matrix(0, 4, 4)
+for (i in 1:4){
+  for (j in 1:4){
+    h.x[i,j] <- x[i] - x[j]
+    h.y[i,j] <- y[i] - y[j]
+  }
+}
+```
+
+$\rho() = \exp(-\boldsymbol{h_{ij}}^T I \boldsymbol{h_{ij}}^T)^{\frac{1}{2}}))$
+
+Implied Distance
+```{r}
+cor.mat <- matrix(0, 4, 4)
+dist.mat <- matrix(0, 4, 4)
+for (i in 1:4){
+  for (j in 1:4){
+    dist.mat[i,j] <- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% diag(2)  %*% (c(h.x[i,j], h.y[i,j])))
+    cor.mat[i,j] <- exp(- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% diag(2)  %*% (c(h.x[i,j], h.y[i,j]))) )
+  }
+}
+
+dist.mat %>% kable(digits = 2)
+```
+
+Correlation
+
+```{r}
+cor.mat %>% kable(digits = 3)
+```
+
+## Geometric Anisotropy: Solution 2
+
+$\rho() = \exp(-\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}})),$ where $B = \begin{pmatrix}
+2 & 0 \\
+0 & 1 \\
+\end{pmatrix}$
+
+Implied Distance
+```{r}
+cor.mat <- matrix(0, 4, 4)
+dist.mat <- matrix(0, 4, 4)
+
+for (i in 1:4){
+  for (j in 1:4){
+    dist.mat[i,j] <- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% matrix(c(2,0,0,1),2,2)  %*% (c(h.x[i,j], h.y[i,j]))) 
+    cor.mat[i,j] <- exp(- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% matrix(c(2,0,0,1),2,2)  %*% (c(h.x[i,j], h.y[i,j]))) )
+  }
+}
+dist.mat %>% kable(digits = 2)
+```
+
+Correlation
+```{r}
+cor.mat %>% kable(digits = 3)
+```
+
+## Geometric Anisotrop: Solution 3
+
+$\rho() = \exp(-\boldsymbol{h_{ij}}^T B \boldsymbol{h_{ij}}^T)^{\frac{1}{2}})),$ where $B = \begin{pmatrix}
+3 & 1 \\
+1 & 1 \\
+\end{pmatrix}$
+
+Implied Distance
+```{r}
+cor.mat <- matrix(0, 4, 4)
+dist.mat <- matrix(0, 4, 4)
+for (i in 1:4){
+  for (j in 1:4){
+    dist.mat[i,j] <- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% matrix(c(3,1,1,1),2,2)  %*% (c(h.x[i,j], h.y[i,j])))
+    cor.mat[i,j] <- exp(- sqrt(t(c(h.x[i,j], h.y[i,j])) %*% matrix(c(3,1,1,1),2,2)  %*% (c(h.x[i,j], h.y[i,j]))) )
+  }
+}
+dist.mat %>% kable(digits = 2)
+```
+
+Correlation
+
+```{r}
+cor.mat %>% kable(digits = 3)
+```
+
+
+## More Geometric Anisotropy
+- The matrix $B$ relates to the orientation of a transformed ellipse.
+- The (effective) range for any angle $\eta$ is determined by the equation
+$$\rho(r_\eta(\tilde{\boldsymbol{h}}_{\eta}^T B \tilde{\boldsymbol{h}}_{\eta}^T)^{\frac{1}{2}}) = .05,$$
+where $\tilde{\boldsymbol{h}}_{\eta}$ is a unit vector in the direction $\eta$.
+
+## Fitting Geometric Anisotropy Models
+- Okay, so if we suspect that geometric anisotrophy is present, how do we fit the model? That is, what is necessary in estimating this model?
+- In addition to $\sigma^2$ and $\tau^2$ we need to fit $B$.
+- What about $\phi$? What is $\phi$ when $B = \begin{pmatrix}
+1 & 0 \\
+0 & 1 \\
+\end{pmatrix}$?
+
+## Priors for B
+- While $B$ is a matrix, it is just another unknown parameter.
+- Hence, to fit a Bayesian model we need a prior distribution for $B$.
+- One option for the positive definite matrix is the Wishart distribution, which is a bit like a matrix-variate gamma distribution.
     
 # Spatial GLMS
 
 ## Data Viz Motivation
 
+### Ozone Exceedance in Colorado
+```{r}
+load('CO_Air.Rdata')
+pal <- colorFactor(c("green", "red"), domain = c(FALSE, TRUE))
+leaflet(CO) %>% addTiles() %>% 
+  addCircleMarkers(lng = ~Longitude, lat = ~Latitude,
+    color = ~pal(Exceedance))
+```
+
 ## Generalized Linear Model Notation
+There are three components to a generalized linear model:
+
+1. Sampling Distribution: such as Poisson or Binomial
+2. Linear combination of predictors: $\eta = X\beta$
+3. A link function to map the linear combination of predictors to the support of the sampling distribution.
+
 
 ## Logistic Regression Overview
+Write out the complete model specification for logistic regression.
+
+- Assume $Y_i$ is the binary response for the $i^{th}$ observation,
+\begin{eqnarray*}
+Y_i &\sim& Bernoulli(\pi_i)\\
+logit(\pi_i) &=& X_i \beta,
+\end{eqnarray*}
+
+- where $logit(\pi_i) = log \left(\frac{\pi_i}{1-\pi_i}\right)$
+
+
+
+## `glm()`
+
+Interpret this output
+
+```{r, echo = T}
+CO <- CO %>% mutate(north = as.numeric(Latitude > 38 ))
+glm(Exceedance~north, family=binomial(link = 'logit'),data=CO) %>% summary
+```
 
 ## Logistic Regression in JAGS
+```{r}
+logistic.model <- "model{
+  # likelihood
+	for (i in 1:N){
+		y[i] ~ dbern(p[i])
+		p[i] <- 1 / (1 + exp(-eta[i]))
+		eta[i] <- int + x[i] * north
+	}
+	# prior
+	int ~ dnorm(0, 1E-12)
+	north ~ dnorm(0, 1E-12)
+}"
+
+jags <- jags.model(textConnection(logistic.model),
+                   data = list('y' = as.numeric(CO$Exceedance),
+                               'N' = length(CO$Exceedance),
+                               'x' = CO$north),
+                   n.chains = 2,
+                   n.adapt = 1000, quiet=T)
+ 
+update(jags, 1000)
+ 
+samp <- coda.samples(jags,
+             c('int','north','p'),
+             5000)
+summary(samp)
+confint(glm(Exceedance~north, family=binomial(link = 'logit'),data=CO) )
+```
+
 
 ## Spatial Logistic Regression
+- Assume $Y_i$ is the binary response for the $i^{th}$ observation,
+\begin{eqnarray*}
+Y_i|\beta, w(\boldsymbol{s_i}) &\sim& Bernoulli(\pi_i)\\
+logit(\pi_i) &=& X_i \beta + w(\boldsymbol{s_i}), \\
+\end{eqnarray*}
+- where $\boldsymbol{W} \sim N(\boldsymbol{0},\sigma^2 H(\phi))$
 
 ## Spatial Logistic Regression in JAGS
+```{r, eval = F}
+model {
+for (i in 1:N) {
+	Y[i] ~ dbern(p[i])
+	logit(p[i]) <- w[i]
+	mu[i] <- beta[1]+beta[2]*LivingArea[i]/1000+beta[3]*Age[i]
+	useless[i] <- HalfBaths[i]+x[i]+y[i]+Age[i]+OtherArea[i]+Beds[i]+Baths[i]+HalfBaths[i]
+}
+
+for (i in 1:3) {beta[i] ~ dnorm(0.0,0.001)}
+w[1:N] ~ spatial.exp(mu[], x[], y[], spat.prec, phi, 1) 	
+#for (i in 1:N) {w[i] ~ dnorm(0.0,spat.prec)}
+phi ~ dunif(0.1,10)	
+	
+spat.prec ~ dgamma(0.1, 0.1)
+sigmasq <- 1/spat.prec
+	
+}
+
+#Initial values
+list(beta=c(0,0,0), phi=5.0, spat.prec=1.0,w = c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+
+list(beta=c(0,0,0,0))
+list(beta=c(5,5,5,5))
+
+#Data values
+list(N = 50, LivingArea = c(1606, 
+979, 1144, 2154, 2992, 1174, 1600, 1020, 1864, 1526, 2408, 1545, 
+2205, 2583, 1705, 2998, 1900, 2200, 1789, 1787, 2121, 1535, 1010, 
+1546, 1413, 2014, 1358, 3418, 1836, 1200, 3052, 1963, 1709, 2477, 
+2642, 2147, 1500, 1700, 1885, 1918, 2066, 2064, 1762, 1328, 1376, 
+2830, 1485, 1593, 1624, 1533), OtherArea = c(794, 452, 584, 786, 
+1522, 410, 550, 529, 1114, 706, 613, 599, 635, 634, 572, 754, 
+850, 768, 596, 275, 256, 478, 386, 791, 660, 695, 567, 1016, 
+556, 1042, 1161, 819, 570, 994, 1008, 512, 410, 832, 920, 559, 
+521, 750, 865, 646, 655, 934, 694, 698, 700, 512), Age = c(11, 
+2, 0, 13, 3, 0, 7, 13, 19, 10, 0, 6, 12, 12, 15, 23, 10, 14, 
+20, 42, 17, 14, 14, 14, 10, 25, 5, 10, 13, 20, 5, 8, 20, 11, 
+11, 24, 24, 50, 12, 15, 18, 5, 16, 15, 17, 11, 0, 4, 8, 10), 
+Beds = c(4, 2, 3, 4, 5, 3, 3, 3, 3, 3, 4, 3, 4, 3, 3, 6, 3, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 2, 4, 3, 3, 3, 4, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3), Baths = c(2, 1, 2, 2, 3, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 3, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2), HalfBaths = c(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0), Y = c(0, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0), x = c(3.95789322711243, 
+-1.65953903186291, -4.65039033698281, 3.40190163834073, 5.50124918904885, 
+-4.38198060447266, 4.67684786776564, 4.28381933087544, -4.76542307948716, 
+3.29645495771072, 7.3226009453725, 3.21018040083212, -9.5105237078035, 
+-9.84603587344221, -0.653002534948152, 0.65070188010523, -0.892654081832554, 
+1.08207466449688, -1.06520319558976, -8.27392172587868, 3.96747928898814, 
+2.17488571829025, 4.29340539275114, 1.96399235703295, 1.04373041699543, 
+-1.50616204185711, 4.54264300151125, 5.0698764046572, 1.88730386202869, 
+-8.9353599952804, -8.08220048837143, -6.72097970206655, -1.19940806184415, 
+5.79841710718611, 3.01845916332487, -2.05256756875448, -7.92882349836427, 
+-6.12664386579204, -0.0778388224250416, 2.27074633704455, 2.21322996579170, 
+4.44678238275694, -0.662588596822492, 5.41497463217025, 0.852009179488183, 
+-6.5771887739351, 1.80102930515145, -1.40071536122711, 4.67684786776564, 
+4.14961446461968), y = c(-6.86199459609406, 4.26750561169679, 
+7.05961021972557, 0.116599000078903, 0.205554941393838, -7.86719673295503, 
+-1.02870874435364, 0.789328306274477, 10.5166604890855, -1.61692990629987, 
+-5.77784406131572, -0.242560612980816, -5.38087817319692, -5.04284559619954, 
+3.90612210010388, 0.312302070972312, 12.1801365916785, -4.50243825270997, 
+9.44918919330357, -3.5973115498283, 0.363451737228557, 12.3758396625719, 
+0.137726036141240, 5.51511268864143, 4.1963408586446, -1.13323197539893, 
+0.471310816073034, 0.723723299554674, -4.24335407362955, 5.05031789527003, 
+-6.29601241947656, -6.08029426178721, -0.719586848283376, 0.204442992127441, 
+-2.83562630231740, 3.71486682627645, 5.18486375650922, -0.643974298165603, 
+4.00063778775119, -0.142485179001515, 1.16850300613053, 0.436840388813536, 
+-4.87494125696685, -7.23116175255174, 2.20372777318541, -7.14109386197041, 
+-1.27778538003609, -6.93649519694543, -1.00869365755770, -2.06726935920771
+))
+```
+
+
 
 ## Spatial Logistic Regression with `spGLM()` 
+```{r}
+##Generate binary data
+coords <- as.matrix(expand.grid(seq(0,100,length.out=8), seq(0,100,length.out=8)))
+n <- nrow(coords)
 
-## Spatial Probit Regression from scratch
+phi <- 3/50
+sigma.sq <- 2
+
+R <- sigma.sq*exp(-phi*as.matrix(dist(coords)))
+w <- rmvn(1, rep(0,n), R)
+
+x <- as.matrix(rep(1,n))
+beta <- 0.1
+p <- 1/(1+exp(-(x%*%beta+w)))
+
+weights <- rep(1, n)
+weights[coords[,1]>mean(coords[,1])] <- 10
+
+y <- rbinom(n, size=weights, prob=p)
+
+##Collect samples
+fit <- glm((y/weights)~x-1, weights=weights, family="binomial")
+beta.starting <- coefficients(fit)
+beta.tuning <- t(chol(vcov(fit)))
+
+n.batch <- 200
+batch.length <- 50
+n.samples <- n.batch*batch.length
+
+m.1 <- spGLM(y~1, family="binomial", coords=coords, weights=weights, 
+             starting=list("beta"=beta.starting, "phi"=0.06,"sigma.sq"=1, "w"=0),
+             tuning=list("beta"=beta.tuning, "phi"=0.5, "sigma.sq"=0.5, "w"=0.5),
+             priors=list("beta.Normal"=list(0,10), "phi.Unif"=c(0.03, 0.3), "sigma.sq.IG"=c(2, 1)),
+             amcmc=list("n.batch"=n.batch, "batch.length"=batch.length, "accept.rate"=0.43),
+             cov.model="exponential", verbose=TRUE, n.report=10)
+
+burn.in <- 0.9*n.samples
+sub.samps <- burn.in:n.samples
+
+print(summary(window(m.1$p.beta.theta.samples, start=burn.in)))
+
+beta.hat <- m.1$p.beta.theta.samples[sub.samps,"(Intercept)"]
+w.hat <- m.1$p.w.samples[,sub.samps]
+
+p.hat <- 1/(1+exp(-(x%*%beta.hat+w.hat)))
+
+y.hat <- apply(p.hat, 2, function(x){rbinom(n, size=weights, prob=p)})
+
+y.hat.mu <- apply(y.hat, 1, mean)
+y.hat.var <- apply(y.hat, 1, var)
+
+##Take a look
+par(mfrow=c(1,2))
+surf <- mba.surf(cbind(coords,y.hat.mu),no.X=100, no.Y=100, extend=TRUE)$xyz.est
+image(surf, main="Interpolated mean of posterior rate\n(observed rate)")
+contour(surf, add=TRUE)
+text(coords, label=paste("(",y,")",sep=""))
+
+surf <- mba.surf(cbind(coords,y.hat.var),no.X=100, no.Y=100, extend=TRUE)$xyz.est
+image(surf, main="Interpolated variance of posterior rate\n(observed #
+of trials)")
+contour(surf, add=TRUE)
+text(coords, label=paste("(",weights,")",sep=""))
+```
 
 ## Poisson Regression Overview
 
